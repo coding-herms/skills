@@ -436,7 +436,7 @@ curl -s http://localhost:<portA>/health && curl -s http://localhost:<portB>/heal
 **If after the full sweep (including E2E verification) the board is still empty:** The foreman MUST run the Never-Done audit before considering self-pause:
 
 ```bash
-skill_view(name='never-done')
+skill_view(name='coding-hermes-never-done')
 ```
 
 The never-done audit checks 10 categories: spec alignment, doc coverage, test gaps, package upgrades, pitfalls, performance, endpoint verification, CI/CD health, DuckBrain sync, code quality. If ANY of the 10 checks finds a gap, create tasks and return to Step 1. The project is not done — the audit found work.

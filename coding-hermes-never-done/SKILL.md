@@ -1,5 +1,5 @@
 ---
-name: never-done
+name: coding-hermes-never-done
 description: Foreman self-improvement loop — empty board means find more work, not stop
 version: 1.0.0
 category: software-development
@@ -261,3 +261,18 @@ Board empty? → Run 10-point audit → Find gaps → Create tasks → Work task
 - **"The tests pass so it's fine"** — tests passing ≠ complete. Specs, docs, deps, perf, pitfalls all need checking.
 - **Self-pausing without running the audit** — NEVER self-pause before running all 10 checks.
 - **"This is a maintenance project, not active"** — maintenance IS active. Continuous improvement never stops.
+- **SELF-DISABLING (CRITICAL)** — NEVER call `PUT enabled=false` on your own project. NEVER auto-disable yourself. Only the scheduler daemon or an explicit human command may disable a project. If you detect you've been idle for many ticks, continue running the 10-point audit and creating improvement tasks — do NOT disable yourself.
+
+## Disable Authority (THE ONLY WAY TO DISABLE A PROJECT)
+
+Projects can be disabled by exactly two things and NOTHING else:
+
+1. **Human command** — the project owner explicitly disables via API, dashboard, or direct DB change.
+2. **Scheduler daemon** — only after a pattern of failures verified across 10+ consecutive timeouts spanning >24 hours, AND only after alerting the chat with a clear warning message like `⚠️ AUTO-DISABLE: <project> disabled after 10 consecutive timeouts`.
+
+**Foremen MUST NOT self-disable.** If your project appears idle or dead:
+- Run the 10-point audit
+- Find improvement tasks
+- If truly nothing to do: log "IDLE — maintenance mode" but stay ENABLED
+- Let cooldown handle pacing — the scheduler will space you out naturally
+- NEVER `PUT enabled=false` from within a foreman tick
