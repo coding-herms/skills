@@ -457,108 +457,26 @@ The never-done audit checks 10 categories: spec alignment, doc coverage, test ga
 
 **ONLY if ALL 10 checks pass with zero findings** does the project enter the self-pause track below. The never-done audit runs on EVERY empty-board tick — not just once.
 
-## Self-Pause — Empty Board Loop Prevention
+## Self-Pause — Only NEVER-DONE Remains
 
-When a project is genuinely complete, the foreman MUST slow down and eventually pause. Burning PAYG tokens on empty-board verification sweeps is waste. This mechanism is mandatory — every foreman tick that ends with an empty board MUST track idle ticks.
+When a project's ONLY remaining task is the NEVER-DONE audit, the foreman sets the daemon cooldown to 12h (43200s). The project is idle — no pending real work. Burning PAYG every 15 minutes on a no-op audit is waste.
 
-### Idle Tick Definition
-
-A tick is "idle" when ALL of:
-- Step 1 finds board empty (or only BLOCKED tasks)
-- Step 1.5 discovery sweep finds nothing requiring a worker spawn
-- Step 1.5h E2E verification passes (system actually works)
-- No new `## [ ]` tasks were created
-- Step 1.6 external signals found nothing creating new tasks
-
-A tick that creates even ONE new `## [ ]` task, spawns a worker, or fails E2E verification resets the idle counter to 0.
-
-### Tracking
-
-The idle counter is tracked in DuckBrain — cron sessions are stateless and the counter must persist across ticks:
-
-```python
-# Read the current idle count (Step 3 context load)
-idle_recall = duckbrain_recall(key="/project/<name>/status/idle-ticks", domain="config", namespace="<project-namespace>")
-consecutive_idle = (idle_recall.get("attributes", {}).get("count", 0) if idle_recall else 0)
-
-# After the tick — update (Step 10 DuckBrain write)
-duckbrain_remember(
-    key=f"/project/<name>/status/idle-ticks",
-    domain="config",
-    attributes={
-        "count": consecutive_idle,
-        "last_tick": "<ISO timestamp>",
-        "action_taken": "none" | "interval-4h" | "interval-12h" | "paused"
-    },
-    embedding_text=f"Foreman idle tick {consecutive_idle}. Project: all phases [x], E2E verified, no gaps found.",
-    namespace="<project-namespace>"  # ALWAYS explicit
-)
+```bash
+# When board has ONLY NEVER-DONE (no other `## [ ]` tasks):
+curl -s -X PUT http://127.0.0.1:9090/api/v1/projects/<name> \
+  -H 'Content-Type: application/json' \
+  -d '{"CooldownS":43200}'
 ```
 
-### Graduated Slowdown
+**Speed-up on new work:** The foreman checks the board on each tick. If real tasks appear (Bane adds work, pushed code creates tasks), the foreman resets cooldown to 900s:
 
-At the END of the tick (after Step 1.6, before returning to Step 1), after updating the idle counter:
-
-```
-If this tick was NOT idle:
-    consecutive_idle = 0
-    If the cron interval was previously increased (by a prior idle tick):
-        Restore to the original project interval (read from DuckBrain /project/<name>/status/base-interval)
-        cronjob(action='update', job_id=<self>, schedule=<base-interval>)
-        Write to DuckBrain: "Work detected. Restored to base interval <base-interval>."
-    Else:
-        Write counter=0 to DuckBrain
-    Return to Step 1 (normal loop)
-
-If this tick WAS idle:
-    consecutive_idle += 1
-    If consecutive_idle >= 3 and consecutive_idle < 5:
-        If this is the FIRST slowdown (counter just hit 3):
-            Store the current interval as base-interval in DuckBrain:
-            duckbrain_remember(key="/project/<name>/status/base-interval", domain="config",
-                attributes={"interval": "<current-cron-interval>"}, ...)
-        cronjob(action='update', job_id=<self>, schedule='0 */4 * * *')
-        Write to DuckBrain: "3 idle ticks. Increased to 4h intervals."
-    If consecutive_idle >= 5 and consecutive_idle < 7:
-        cronjob(action='update', job_id=<self>, schedule='0 */12 * * *')
-        Write to DuckBrain: "5 idle ticks. Increased to 12h intervals."
-    If consecutive_idle >= 7:
-        cronjob(action='pause', job_id=<self>)
-        Write to DuckBrain: "Paused after 7 idle ticks. Project complete. Resume manually or via supervisor."
-        STOP — tick complete, foreman paused
-    Return to Step 1 (next tick at potentially-adjusted interval)
+```bash
+curl -s -X PUT http://127.0.0.1:9090/api/v1/projects/<name> \
+  -H 'Content-Type: application/json' \
+  -d '{"CooldownS":900}'
 ```
 
-**Speed-up on new work:** When a non-idle tick fires (new task, worker spawn, E2E failure), the foreman reads the stored base-interval from DuckBrain and restores it. This means a project that slowed to 12h will snap back to 30m/60m when real work appears. The "never decrease interval" rule in the toolset enforcement applies to the LLM's judgment — the speed-up is programmatic (restoring a stored value), not a new decision.
-```
-
-### What Counts as "Not Idle" (Resets the Counter)
-
-- Worker was spawned (Step 5 executed)
-- A new `## [ ]` task was created on the board for ANY reason (vuln, E2E failure, dep issue, external signal)
-- Step 1.6 external signals created a new task (new GitHub issue, remote commits, security dep update)
-- A guard/judge failure required a retry or task respawn
-- Any code was committed that wasn't trivial (trivial = README count updates, typo fixes, board-only commits)
-- E2E verification (1.5h) found failures
-
-### What Does NOT Reset the Counter (Still Idle)
-
-- Trivial doc fixes committed directly (stale count in README, typo, board update)
-- DuckBrain writes
-- Off-by-One submissions
-- git pull --rebase with no new commits
-- Discovery sweep that finds nothing
-- E2E verification that passes (system works, nothing to fix)
-
-### Self-Pause Requires cronjob Access
-
-The foreman's `enabled_toolsets` strips `cronjob` to prevent schedule self-modification (foremen shortening intervals from 2h to 30m). **Self-pause is the opposite — it only lengthens intervals or pauses.** For self-pause to work, the foreman needs `cronjob` in its enabled_toolsets. The skill rule is: `cronjob` may ONLY be used for self-pause (increase interval, pause). Any other use (decrease interval, change model, modify other crons) is a violation.
-
-**Alternative if cronjob is not available:** Output a clear message in the tick delivery: "⚠️ IDLE TICK {N}/7 — project complete. Bane, pause this foreman with: `cronjob(action='pause', job_id='<self>')`." The supervisor's fleet audit will detect the stale foreman and escalate.
-
-### Interaction with Supervisor
-
-The supervisor's fleet audit detects paused foremen and reports them. When Bane adds new tasks to a paused project's board, the supervisor auto-resumes the foreman. The idle-tick counter in DuckBrain is the single source of truth — the supervisor reads it to distinguish "paused because complete" from "paused because broken."
+The supervisor also handles this in Phase 2D: any project at 43200s cooldown with new pending tasks gets reset to 900s.
 
 ## Step 2 — Hilo Impact Analysis
 
