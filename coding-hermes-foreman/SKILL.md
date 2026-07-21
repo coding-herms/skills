@@ -203,6 +203,29 @@ If the environment is fundamentally broken (missing toolchain, corrupted venv), 
 
 Read `.coding-hermes/tasks.md`. This is the project's single source of truth for what needs to be done.
 
+**Board format — model-router style (MANDATORY):** Every task board MUST use the matrix format from `coding-hermes-model-router`. Each task is a row with: ID, Task, Priority, Complexity, Dependencies, Capability Tags, Selected Model, Reasoning Level, Fallback.
+
+```markdown
+# Project Name — Task Board
+
+> Foreman: deepseek-v4-flash @ deepseek-foreman | DuckBrain: <namespace>
+
+## Active
+
+| ID | Task | Pri | Cpx | Deps | Tags | Model | Reasoning | Fallback |
+|----|------|-----|-----|------|------|-------|-----------|----------|
+| T01 | Repair login flow | Critical | 5±1 | — | +++backend, ++debugging, -vision | GLM-5.2 | High | DS-V4-Pro |
+| T02 | Add rollback to migration | High | 4±1 | T01 | +++database, ++terminal, -vision | DS-V4-Flash | Medium | Kimi-K3 |
+
+## Completed
+
+| ID | Task | Pri | Cpx | Commit | Model |
+|----|------|-----|-----|--------|-------|
+| T00 | Bootstrap init | Trivial | 1±0 | abc1234 | DS-V4-Flash |
+```
+
+When onboarding a new project, the foreman MUST load `coding-hermes-model-router` and decompose the project into this matrix.
+
 **Permanent last task — NEVER-DONE:** Every task board MUST end with this task. It is NEVER marked `[x]` — it is the perpetual improvement engine.
 
 ```
