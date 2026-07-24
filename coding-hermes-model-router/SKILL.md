@@ -1,7 +1,7 @@
 ---
 name: coding-hermes-model-router
 description: Task decomposition and model routing — break projects into independently executable tasks, score by priority/complexity/capability, route each to the least expensive model that can complete it reliably
-version: 1.0.0
+version: 1.1.0
 category: coding-hermes
 ---
 
@@ -108,10 +108,17 @@ Tag strength: `+++tag` essential, `++tag` important, `+tag` useful, `-tag` unnec
 
 ### GPT-5.6 Terra
 - **Complexity:** 2-5 | **Cost:** $100/mo flat-rate | **Speed:** Medium | **Context:** 1M
-- **++:** documentation, spec-writing | **+:** structured-data, code-generation, testing
+- **+++:** spec-writing, documentation | **++:** structured-data, testing | **+:** code-generation
 - **-:** complex-architecture, concurrency | **--:** performance
-- **Provider:** openai-codex | **Levels:** Minimal-Low-Med-High
-- **Best:** Spec/doc writing, bounded implementation, test authoring
+- **Provider:** openai-codex | **Levels:** Minimal-Med-High
+- **Best:** Spec/documentation writing, test authoring, bounded implementation — primary spec writer
+
+### GPT-5.6 Luna
+- **Complexity:** 1-4 | **Cost:** $100/mo flat-rate | **Speed:** Fast | **Context:** 1M
+- **+++:** test-execution, testing | **++:** debugging, terminal | **+:** code-review, file-editing
+- **-:** architecture, spec-writing | **--:** complex-reasoning
+- **Provider:** openai-codex | **Levels:** Minimal-Med
+- **Best:** Test running, test debugging, CI verification, regression hunting — primary test runner
 
 ### Step 3.7 Flash
 - **Complexity:** 1-4 | **Cost:** $0.09/$0.30/1M | **Speed:** Fast | **Context:** 256K
@@ -156,12 +163,19 @@ Escalation actions: increase reasoning level, switch to fallback, split task, cr
 - Board is empty + NEVER-DONE audit → re-assess with model routing
 - Worker selection → match task tags to model profiles above
 
-**Output format:**
+**Legacy board conversion:** when converting existing `.coding-hermes/tasks.md` boards to this matrix format, see `references/board-conversion.md` for the 7-step bulk-conversion pattern.
+
+**Output format (minimal skeleton — see `references/board-conversion.md` for full patterns including phase grouping, board state classification, and completed-summary treatment):**
 ```
 Core purpose: [one-liner]
+[Status line: foreman model, worker model, DuckBrain namespace, current state, tick info]
 ID | Task | Priority | Complexity | Deps | Tags | Model | Reasoning | Fallback
+[Phase header rows for >10 tasks spanning multiple phases — see reference]
 Assumptions: [only routing-relevant ones]
-Routing Notes: [explain unusual selections]
-Execution Order: [prioritized IDs]
-Escalation Conditions: [when to reroute]
+Routing Notes: [explain unusual selections, per-phase rationale for full pipelines]
+Execution Order: [prioritized IDs, phased for full pipelines]
+Escalation Conditions: [board-state-specific — idle vs active vs full pipeline]
+Completed: [phase-level summary table — collapse, don't delete]
 ```
+
+**When converting existing boards**, load `references/board-conversion.md` for the full workflow including pre-scan, board state classification, task-type routing defaults, and anti-patterns.
