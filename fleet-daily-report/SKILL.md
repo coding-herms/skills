@@ -1,73 +1,121 @@
 ---
 name: fleet-daily-report
-description: Generate a comprehensive daily HTML fleet report using parallel subagents to gather per-project data, then compile into an interactive dashboard with collapsible cards and drill-down depth
-version: 1.0.0
+description: Generate a deep, interactive, offline-readable HTML fleet report — one subagent per project for maximum depth, then compile into a navigable dashboard with clickable drill-down cards showing full task boards, git history, CI status, DuckBrain entries, risk assessments, and foreman tick logs
+version: 2.0.0
 category: coding-hermes
 ---
 
-# Fleet Daily Report
+# Fleet Daily Report — Deep Edition
 
-Generate a comprehensive, interactive HTML report covering all coding-hermes projects. Use multiple subagents in parallel to gather data, then compile into a single deliverable.
+Generate a self-contained HTML report designed for offline reading. Bane downloads this, reads it for hours, and writes responses in Telegram that send when connectivity returns. The fleet keeps working in the background.
 
-## Report Structure
+## Design Principles
 
-### Header
-- Generation timestamp, daemon status (health, uptime, active ticks, spawn stats)
-- Fleet summary: total projects, active count, idle count, total tasks pending
-- Quick stats: commits today, CI pass/fail, new tasks created, risks identified
+- **One subagent per project** — each agent dives deep into a single project: full board read, git log, CI history, DuckBrain recall, tick log analysis. No surface-level summaries.
+- **Clickable drill-down** — every project card expands to show ALL detail. Nothing hidden behind pagination.
+- **Self-contained** — no external resources, no JS frameworks. Pure HTML+CSS. Works offline.
+- **Rich formatting** — code blocks, diff previews, commit messages, CI URLs, model assignments. Formatted for reading, not scanning.
+- **Cross-linking** — project cards link to related projects (shared repos, shared DuckBrain namespaces).
 
-### Per-Project Cards (one per enabled project)
-Each card is a collapsible `<details>` element showing:
-1. **Header row:** Project name, status badge (ACTIVE/IDLE/ZOMBIE/BLOCKED), pending task count, cooldown
-2. **Expanded body:**
-   - **Last 3 runs:** tick timestamp, outcome, commits, model used, tasks completed
-   - **Recent work:** what was built/fixed in last 24h (from git log + DuckBrain)
-   - **Board status:** real pending tasks with model assignments (from tasks.md)
-   - **CI status:** pass/fail, last run URL
-   - **Risks:** blocked tasks, zombie detection (idle ticks > 20), cooldown anomalies
-   - **Never-Done findings:** gaps discovered by most recent audit
+## Data Gathering — One Subagent Per Project
+
+For EACH of the ~14 active projects (idle projects get lighter treatment — see below):
+
+### Active Projects (has real pending tasks)
+Dedicated subagent gathers:
+1. **Board:** Read full `.coding-hermes/tasks.md` — list every pending task with model assignment, priority, complexity, dependencies, tags
+2. **GitReins:** Read GitReins board if available — count pending, list discrepancies with coding-hermes board
+3. **Git log:** `git log --since="48 hours ago" --oneline --stat` — all commits with files changed
+4. **Foreman ticks:** Last 5 ticks from scheduler API — status, outcome, commits, model used, duration, spawned workers
+5. **DuckBrain:** `duckbrain recall keyPrefix="/projects/[name]" limit=20` — recent context entries
+6. **CI:** `gh run list --limit 10` — full CI history with status, duration, URL
+7. **Risks:** Zombie detection (idle ticks > 20), blocked tasks, cooldown stuck, model mismatch, skill staleness
+8. **NEVER-DONE:** Results of most recent audit — gaps found, tasks created
+9. **Recent work narrative:** 2-3 sentence summary of what was built/fixed in last 48h (from commits + board changes)
+
+### Idle Projects (only NEVER-DONE remains)
+Lighter treatment — one subagent covering all idle projects:
+1. Confirmation that board has only NEVER-DONE
+2. Last tick timestamp
+3. Cooldown status
+4. Any CI failures
+5. NEVER-DONE present? If missing, add it
+
+## HTML Structure
+
+The report is a single `.html` file with:
+
+### Top Section — Fleet Dashboard
+- Generation timestamp, daemon health
+- Fleet stats: total projects, active, idle, total real pending tasks, commits in 48h, CI pass/fail ratio
+- Quick-nav: links to each project card (anchor links)
 
 ### Problem Dashboard
-- Stuck/zombie projects (idle > 20 ticks but has pending)
-- CI failures (grouped by cause — billing, test failure, config)
-- Board discrepancies (GitReins vs coding-hermes disagreement)
-- Cooldown anomalies (active at >2h, idle at <12h)
-- Missing NEVER-DONE, missing board, missing foreman
+- All risks sorted by severity: zombie projects, CI failures, blocked tasks, board discrepancies, missing NEVER-DONE
+- Each risk item links to the relevant project card
 
-## Data Gathering — Parallel Subagents
+### Active Project Cards — Deep Detail (`<details>` open by default)
+Each card shows:
+```
+┌─────────────────────────────────────────────┐
+│ 🟢 PROJECT NAME — 5 pending — 900s — V4 Flash      │
+├─────────────────────────────────────────────┤
+│ ▼ Task Board (full)                                  │
+│   ID | Task | Pri | Cpx | Model | Deps | Tags       │
+│   ...all rows...                                             │
+│                                                              │
+│ ▼ Recent Commits (48h)                              │
+│   abc1234 fix: broken auth middleware              │
+│   def5678 feat: add rate limiting                          │
+│   ...with file stats...                                      │
+│                                                              │
+│ ▼ Foreman Ticks (last 5)                              │
+│   Jul 24 14:30 | completed | 3 commits | 245s      │
+│   ...                                                                 │
+│                                                              │
+│ ▼ CI Status                                                │
+│   ✅ build (12m)  ❌ test (3m)  ✅ lint (2m)            │
+│   ...                                                                 │
+│                                                              │
+│ ▼ DuckBrain Context                                      │
+│   /projects/name/spec-001 — last updated ...           │
+│   ...                                                                 │
+│                                                              │
+│ ▼ Risk Assessment                                         │
+│   ⚠️ 3 blocked tasks                                 │
+│   ⚠️ cooldown stuck at 1800s (should be 900s)           │
+│   ✅ no zombie detected                                        │
+│                                                              │
+│ ▼ What Got Done (48h narrative)                   │
+│   Built auth middleware (3 endpoints, 12 tests).    │
+│   Fixed CI flakiness in integration suite.               │
+└─────────────────────────────────────────────────────────┘
+```
 
-Dispatch 4 subagents simultaneously, each responsible for ~10 projects:
+### Idle Project Summary — Compact Table
+```
+| Project | Last Tick | Cooldown | NEVER-DONE? | CI |
+|---------|-----------|----------|-------------|-----|
+| bunker  | Jul 23    | 43200s   | ✅          | ✅ |
+```
 
-**Subagent instructions:**
-For each assigned project:
-1. Read `.coding-hermes/tasks.md` — count real pending, flag NEVER-DONE presence
-2. Check GitReins board if available — count pending, note discrepancies
-3. Run `git log --since="24 hours ago" --oneline` — collect commit messages
-4. Check DuckBrain for recent entries about this project
-5. Get last 3 ticks from scheduler API
-6. Check CI status via `gh run list --limit 3` or report N/A
-7. Detect: zombie (idle ticks > 20 with pending), blocked tasks, cooldown issues
-
-Output format: JSON per project ready for compilation.
-
-## HTML Template
-
-Use `references/report-template.html` — a responsive dashboard with:
-- Dark theme, fleet-color branding
-- Collapsible `<details>` cards per project
-- Color-coded status badges (🟢 active, 🔵 idle, 🟡 blocked, 🔴 zombie)
-- Problem dashboard section at top
-- Auto-refresh meta tag (every 5 min during active hours)
-- Mobile-responsive grid layout
-- CSS-only — no JS framework dependency
+### Footer
+- Report generation metadata
+- Link to `coding-hermes-model-router` for model profiles reference
+- Total subagents dispatched, total data gathered
 
 ## Delivery
 
-Generate the HTML file, save to `~/.hermes/reports/fleet-YYYY-MM-DD-HHMM.html`, and deliver via:
-1. `MEDIA:` path in the response (shows inline in Telegram)
-2. Text summary: "Fleet Report — [date] — [active] active, [idle] idle, [risks] risks"
+1. Save HTML to `~/.hermes/reports/fleet-YYYY-MM-DD-HHMM.html`
+2. Deliver `MEDIA:[path]` so it renders inline in Telegram
+3. Text summary:
+   ```
+   📊 Fleet Report — [date] [time]
+   🔴 Active: [N] | 🔵 Idle: [N] | ⚠️ Risks: [N]
+   📝 [N] commits in 48h | 🧪 CI: [pass]/[fail]
+   ```
 
 ## Scheduling
 
-This skill is designed for cron: `0 8,14,20 * * *` (three times daily at 8am, 2pm, 8pm).
-Each run is independent — the report is a complete snapshot, not a diff.
+Cron: `0 8,14,20 * * *` — three times daily.
+Each run is independent — a complete offline-readable snapshot.
